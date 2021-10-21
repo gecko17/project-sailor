@@ -4,16 +4,18 @@ Retrieve Alert information from the alert re-use service.
 Classes are provided for individual Alert as well as groups of Alerts (AlertSet).
 """
 
+import sailor.assetcentral.utils
 from sailor import _base
-from ..utils.timestamps import _odata_to_timestamp_parser
-from .._base.masterdata import _qt_odata_datetimeoffset, _qt_double
+from sailor.utils.oauth_wrapper import get_oauth_client
+from sailor.utils.timestamps import _odata_to_timestamp_parser
+from sailor._base.masterdata import _qt_odata_datetimeoffset, _qt_double
 from .constants import ALERTS_READ_PATH
 from .utils import (PredictiveAssetInsightsEntity, _PredictiveAssetInsightsField,
                     PredictiveAssetInsightsEntitySet, _pai_application_url, _pai_fetch_data)
 
 _ALERT_FIELDS = [
-    _PredictiveAssetInsightsField('description', 'Description'),
-    _PredictiveAssetInsightsField('severity_code', 'SeverityCode',
+    _PredictiveAssetInsightsField('description', 'Description', 'description'),
+    _PredictiveAssetInsightsField('severity_code', 'SeverityCode', 'severityCode', is_mandatory=True,
                                   query_transformer=_qt_double),
     _PredictiveAssetInsightsField('category', 'Category'),
     _PredictiveAssetInsightsField('equipment_name', 'EquipmentName'),
@@ -23,20 +25,23 @@ _ALERT_FIELDS = [
     _PredictiveAssetInsightsField('template_name', 'TemplateName'),
     _PredictiveAssetInsightsField('count', 'Count', query_transformer=_qt_double),
     _PredictiveAssetInsightsField('status_code', 'StatusCode', query_transformer=_qt_double),
-    _PredictiveAssetInsightsField('triggered_on', 'TriggeredOn', get_extractor=_odata_to_timestamp_parser(),
+    _PredictiveAssetInsightsField('triggered_on', 'TriggeredOn', 'triggeredOn', is_mandatory=True,
+                                  get_extractor=_odata_to_timestamp_parser(),
                                   query_transformer=_qt_odata_datetimeoffset),
     _PredictiveAssetInsightsField('last_occured_on', 'LastOccuredOn', get_extractor=_odata_to_timestamp_parser(),
                                   query_transformer=_qt_odata_datetimeoffset),
     _PredictiveAssetInsightsField('type_description', 'AlertTypeDescription'),
     _PredictiveAssetInsightsField('error_code_description', 'ErrorCodeDescription'),
-    _PredictiveAssetInsightsField('type', 'AlertType'),
+    _PredictiveAssetInsightsField('type', 'AlertType', 'alertType', is_mandatory=True),
+    _PredictiveAssetInsightsField('source', 'Source', 'source'),
     _PredictiveAssetInsightsField('id', 'AlertId'),
-    _PredictiveAssetInsightsField('equipment_id', 'EquipmentID'),
+    _PredictiveAssetInsightsField('equipment_id', 'EquipmentID', 'equipmentId', is_mandatory=True),
     _PredictiveAssetInsightsField('model_id', 'ModelID'),
-    _PredictiveAssetInsightsField('template_id', 'TemplateID'),
-    _PredictiveAssetInsightsField('indicator_id', 'IndicatorID'),
-    _PredictiveAssetInsightsField('indicator_group_id', 'IndicatorGroupID'),
+    _PredictiveAssetInsightsField('template_id', 'TemplateID', 'templateId'),
+    _PredictiveAssetInsightsField('indicator_id', 'IndicatorID', 'indicatorId'),
+    _PredictiveAssetInsightsField('indicator_group_id', 'IndicatorGroupID', 'indicatorGroupId'),
     _PredictiveAssetInsightsField('notification_id', 'NotificationId'),
+    _PredictiveAssetInsightsField('error_code_id', 'ErrorCodeID', 'errorCodeId'),
     _PredictiveAssetInsightsField('_indicator_description', 'IndicatorDescription'),
     _PredictiveAssetInsightsField('_country_id', 'CountryID'),
     _PredictiveAssetInsightsField('_functional_location_id', 'FunctionalLocationID'),
@@ -54,9 +59,7 @@ _ALERT_FIELDS = [
     _PredictiveAssetInsightsField('_processor', 'Processor'),
     _PredictiveAssetInsightsField('_top_equipment_id', 'TopEquipmentID'),
     _PredictiveAssetInsightsField('_planning_plant', 'PlanningPlant'),
-    _PredictiveAssetInsightsField('_error_code_id', 'ErrorCodeID'),
     _PredictiveAssetInsightsField('_operator_id', 'OperatorID'),
-    _PredictiveAssetInsightsField('_source', 'Source'),
     _PredictiveAssetInsightsField('_top_equipment_name', 'TopEquipmentName'),
     _PredictiveAssetInsightsField('_created_on', 'CreatedOn', get_extractor=_odata_to_timestamp_parser(),
                                   query_transformer=_qt_odata_datetimeoffset),
@@ -116,3 +119,35 @@ def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
     endpoint_url = _pai_application_url() + ALERTS_READ_PATH
     object_list = _pai_fetch_data(endpoint_url, unbreakable_filters, breakable_filters)
     return AlertSet([Alert(obj) for obj in object_list])
+
+
+def create_alert(**kwargs) -> Alert:
+    """Create a new notification.
+
+    Parameters
+    ----------
+    **kwargs
+        Keyword arguments which names correspond to the available properties.
+
+    Returns
+    -------
+    Notification
+        A new notification object as retrieved from AssetCentral after the create succeeded.
+
+    Example
+    -------
+    >>> notf = create_notification(equipment_id='123', short_description='test',
+    ...                            notification_type='M2', status='NEW', priority=5)
+    """
+    request = sailor.assetcentral.utils._AssetcentralWriteRequest(Alert._field_map)
+    request.insert_user_input(kwargs, forbidden_fields=['id'])
+    request.validate()
+    endpoint_url = sailor.assetcentral.utils._ac_application_url() + '/ain/services/api/v1/alerts'
+    oauth_client = get_oauth_client('asset_central')
+
+    response = oauth_client.request('POST', endpoint_url, json=request.data)
+    alert_id = response.decode('utf-8')
+    result = find_alerts(id=alert_id)
+    if len(result) != 1:
+        raise RuntimeError('Unexpected error when creating or updating the notification. Please try again.')
+    return result[0]
