@@ -4,6 +4,8 @@ Retrieve Alert information from the alert re-use service.
 Classes are provided for individual Alert as well as groups of Alerts (AlertSet).
 """
 
+from functools import cache
+
 import sailor.assetcentral.utils
 from sailor import _base
 from sailor.utils.oauth_wrapper import get_oauth_client
@@ -77,6 +79,12 @@ class Alert(PredictiveAssetInsightsEntity):
     """PredictiveAssetInsights Alert Object."""
 
     _field_map = {field.our_name: field for field in _ALERT_FIELDS}
+
+    @property
+    @cache
+    def custom_properties(self):
+        return {key: value for key, value in self.raw.items()
+                if key.startswith('Z_') or key.startswith('z_')}
 
 
 class AlertSet(PredictiveAssetInsightsEntitySet):
