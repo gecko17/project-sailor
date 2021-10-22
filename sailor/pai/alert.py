@@ -9,7 +9,7 @@ from sailor import _base
 from sailor.utils.oauth_wrapper import get_oauth_client
 from sailor.utils.timestamps import _odata_to_timestamp_parser
 from sailor._base.masterdata import _qt_odata_datetimeoffset, _qt_double
-from .constants import ALERTS_READ_PATH
+from .constants import ALERTS_READ_PATH, ALERTS_WRITE_PATH
 from .utils import (PredictiveAssetInsightsEntity, _PredictiveAssetInsightsField,
                     PredictiveAssetInsightsEntitySet, _pai_application_url, _pai_fetch_data)
 
@@ -121,33 +121,49 @@ def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
     return AlertSet([Alert(obj) for obj in object_list])
 
 
-def create_alert(**kwargs) -> Alert:
-    """Create a new notification.
+def create_alert(custom_properties: dict = None, **kwargs) -> Alert:
+    """Create a new alert.
 
     Parameters
     ----------
+    custom_properties
+        Properties specific to the alert type. Also known as Custom Fields.
     **kwargs
         Keyword arguments which names correspond to the available properties.
 
     Returns
     -------
-    Notification
-        A new notification object as retrieved from AssetCentral after the create succeeded.
+    Alert
+        A new alert object as retrieved from PAI after the create succeeded.
 
     Example
     -------
-    >>> notf = create_notification(equipment_id='123', short_description='test',
-    ...                            notification_type='M2', status='NEW', priority=5)
+    >>> alert = create_alert(equipment_id='123', triggered_on='2020-07-31T13:23:00Z'
+    ...                      type='PUMP_TEMP_WARN', severity_code=1, indicator_id='ic1',
+    ...                      indicator_group_id='ig1', template_id='t1')
     """
-    request = sailor.assetcentral.utils._AssetcentralWriteRequest(Alert._field_map)
+    if custom_properties:
+        kwargs.update(custom_properties=custom_properties)
+    request = _AlertWriteRequest()
     request.insert_user_input(kwargs, forbidden_fields=['id'])
     request.validate()
-    endpoint_url = sailor.assetcentral.utils._ac_application_url() + '/ain/services/api/v1/alerts'
+    endpoint_url = sailor.assetcentral.utils._ac_application_url() + ALERTS_WRITE_PATH
     oauth_client = get_oauth_client('asset_central')
 
     response = oauth_client.request('POST', endpoint_url, json=request.data)
     alert_id = response.decode('utf-8')
     result = find_alerts(id=alert_id)
     if len(result) != 1:
-        raise RuntimeError('Unexpected error when creating or updating the notification. Please try again.')
+        raise RuntimeError('Unexpected error when creating the alert. Please try again.')
     return result[0]
+
+
+class _AlertWriteRequest(sailor.assetcentral.utils._AssetcentralWriteRequest):
+
+    # preliminary idea
+    ADD_WRITE_PARAMS = {
+        'custom_properties': _PredictiveAssetInsightsField('custom_properties', None, 'custom_properties')
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__({**Alert._field_map, **self.ADD_WRITE_PARAMS}, *args, **kwargs)
