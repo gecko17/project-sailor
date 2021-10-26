@@ -5,6 +5,7 @@ Classes are provided for individual Alert as well as groups of Alerts (AlertSet)
 """
 
 from functools import cache
+import re
 
 import sailor.assetcentral.utils
 from sailor import _base
@@ -159,7 +160,10 @@ def create_alert(custom_properties: dict = None, **kwargs) -> Alert:
     oauth_client = get_oauth_client('asset_central')
 
     response = oauth_client.request('POST', endpoint_url, json=request.data)
-    alert_id = response.decode('utf-8')
+    alert_id = re.search(
+                r'[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}',
+                response.decode('utf-8')).group()
+
     result = find_alerts(id=alert_id)
     if len(result) != 1:
         raise RuntimeError('Unexpected error when creating the alert. Please try again.')
