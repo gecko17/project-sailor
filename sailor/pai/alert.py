@@ -81,6 +81,15 @@ class Alert(PredictiveAssetInsightsEntity):
 
     _field_map = {field.our_name: field for field in _ALERT_FIELDS}
 
+    def __init__(self, ac_json: dict):
+        super().__init__(ac_json)
+        for key, value in self.custom_properties.items():
+            setattr(self, key, value)
+            self._field_map = self._field_map.copy()    # only update the field map of this particular object
+            self._field_map[key] = _PredictiveAssetInsightsField(key, key)
+            # this field is fake however, it is only used when as_df() is called to determine if the field should be
+            # included in the data frame
+
     @property
     @cache
     def custom_properties(self):
@@ -97,6 +106,29 @@ class AlertSet(PredictiveAssetInsightsEntitySet):
             'by': 'type',
         },
     }
+
+    def as_df(self, columns=None, include_custom_properties=False):
+        """Return all information on the objects stored in the AlertSet as a pandas dataframe.
+
+        ``include_custom_properties`` can be set to True to add ALL custom properties attached to the alerts
+        to the resulting DataFrame. This can only be used when all alerts in the AlertSet are of the same type.
+        """
+        if columns is None:
+            columns = [field.our_name for field in self._element_type._field_map.values() if field.is_exposed]
+
+        df = super().as_df(columns=columns + ['type'])  # type might be needed and will be removed at the end
+
+        if len(self) > 0 and include_custom_properties:
+            if df['type'].nunique() > 1:
+                raise RuntimeError('Cannot include custom properties: More than one alert type present in result.')
+            custom_columns = list(self[0].custom_properties.keys()) + ['id']
+            df_custom = super().as_df(columns=custom_columns)
+            df = df.merge(df_custom)
+
+        if 'type' not in columns:
+            df.drop(columns='type', inplace=True)
+
+        return df
 
 
 def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
