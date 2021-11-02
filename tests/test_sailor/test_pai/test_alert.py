@@ -1,6 +1,7 @@
-from unittest.mock import patch, call, MagicMock
+from unittest.mock import patch, call
 
 import pytest
+from pandas import Timestamp
 
 from sailor.pai import constants
 from sailor import pai
@@ -75,7 +76,6 @@ class TestAlert():
         assert expected_attributes == fieldmap_public_attributes
 
 
-
 @pytest.mark.filterwarnings('ignore:Unknown name for _AlertWriteRequest parameter found')
 def test_create_alert_create_calls_and_result(mock_ac_url, mock_pai_url, mock_request):
     input_kwargs = {'param1': 'abc123', 'param2': 'def456'}
@@ -96,14 +96,14 @@ def test_create_alert_create_calls_and_result(mock_ac_url, mock_pai_url, mock_re
     assert actual.raw == {'some': 'result'}
 
 
-# TODO: this test might be able to be turned into a generic test for all _create_or_update functions
 @pytest.mark.parametrize('find_call_result', [
     ({'d': {'results': []}}),
     ({'d': {'results': [{'AlertId': '123'}, {'AlertId': '456'}]}}),
 ])
 @pytest.mark.filterwarnings('ignore::sailor.utils.utils.DataNotFoundWarning')
 @patch('sailor.pai.alert._AlertWriteRequest')
-def test_generic_create_update_raises_when_find_has_no_single_result(mock_wr, mock_pai_url, mock_ac_url, mock_request, find_call_result):
+def test_generic_create_update_raises_when_find_has_no_single_result(mock_wr, mock_pai_url, mock_ac_url, mock_request,
+                                                                     find_call_result):
     successful_create_result = b'12345678-1234-1234-1234-1234567890ab'
     mock_request.side_effect = [successful_create_result, find_call_result]
 
@@ -111,23 +111,52 @@ def test_generic_create_update_raises_when_find_has_no_single_result(mock_wr, mo
         create_alert()
 
 
-# def test_create_notification_integration(mock_url, mock_request):
-#     create_kwargs = {'equipment_id': 'XYZ', 'notification_type': 'M2',
-#                      'short_description': 'test', 'priority': 15, 'status': 'NEW'}
-#     mock_post_response = {'notificationID': '123'}
-#     mock_get_response = {'equipmentId': 'XYZ', 'notificationId': '123', 'notificationType': 'M2',
-#                          'shortDescription': 'test', 'priority': 15, 'status': 'NEW'}
-#     mock_request.side_effect = [mock_post_response, mock_get_response]
-#     expected_request_dict = {
-#         'equipmentID': 'XYZ', 'type': 'M2', 'description': {'shortDescription': 'test'},
-#         'priority': 15, 'status': ['NEW']}
+def test_create_alert_integration(mock_pai_url, mock_ac_url, mock_request):
+    create_kwargs = {
+        'triggered_on': '2020-07-31T13:23:02Z',
+        'description': 'Test alert',
+        'type': 'Centrifuge_Overheating',
+        'severity_code': 5,
+        'equipment_id': '5FAEDF9376084F0BB97DB42E2EA34143',
+        'template_id': '8AE766D00DA9FC371700BE0A1BC94F02',
+        'indicator_group_id': '5A88CDF36B204CF38544EFA4A5E4C007',
+        'indicator_id': '9EC5B06DA27C49B7AB105697A1FC45DA',
+        'source': 'Machine'}
+    expected_request_dict = {
+        'triggeredOn': '2020-07-31T13:23:02Z',
+        'description': 'Test alert',
+        'alertType': 'Centrifuge_Overheating',
+        'severityCode': 5,
+        'equipmentId': '5FAEDF9376084F0BB97DB42E2EA34143',
+        'templateId': '8AE766D00DA9FC371700BE0A1BC94F02',
+        'indicatorGroupId': '5A88CDF36B204CF38544EFA4A5E4C007',
+        'indicatorId': '9EC5B06DA27C49B7AB105697A1FC45DA',
+        'source': 'Machine'}
+    mock_post_response = b'12345678-1234-1234-1234-1234567890ab'
+    mock_get_response = {'d': {'results': [{
+        '__metadata': {},
+        'EquipmentID': '5FAEDF9376084F0BB97DB42E2EA34143',
+        'TriggeredOn': '/Date(1596201782000)/',
+        'SeverityCode': 5,
+        'TemplateID': '8AE766D00DA9FC371700BE0A1BC94F02',
+        'Description': 'Test alert',
+        'IndicatorID': '9EC5B06DA27C49B7AB105697A1FC45DA',
+        'Source': 'Machine',
+        'AlertType': 'Centrifuge_Overheating',
+        'IndicatorGroupID': '5A88CDF36B204CF38544EFA4A5E4C007',
+        'AlertId': '12345678-1234-1234-1234-1234567890ab'}
+        ]}}
+    mock_request.side_effect = [mock_post_response, mock_get_response]
 
-#     actual = create_notification(**create_kwargs)
+    actual = create_alert(**create_kwargs)
 
-#     mock_request.assert_has_calls([
-#         call('POST', 'base_url/services/api/v1/notification', json=expected_request_dict),
-#         call('GET', 'base_url/services/api/v1/notification', params={'$filter': "notificationId eq '123'",
-#                                                                      '$format': 'json'})])
-#     assert type(actual) == Notification
-#     for property_name, value in create_kwargs.items():
-#         assert getattr(actual, property_name) == value
+    mock_request.assert_has_calls([
+        call('POST', 'ac_base_url/ain/services/api/v1/alerts', json=expected_request_dict),
+        call('GET', 'pai_base_url/alerts/odata/v1/Alerts', params={
+            '$filter': "AlertId eq '12345678-1234-1234-1234-1234567890ab'", '$format': 'json'})])
+    assert type(actual) == Alert
+    assert actual.id == '12345678-1234-1234-1234-1234567890ab'
+    assert actual.triggered_on == Timestamp('2020-07-31T13:23:02Z')
+    create_kwargs.pop('triggered_on')
+    for property_name, value in create_kwargs.items():
+        assert getattr(actual, property_name) == value
