@@ -1,11 +1,10 @@
-from unittest.mock import patch, call
+from unittest.mock import patch
 
 import pytest
-from pandas import Timestamp
 
 from sailor.pai import constants
 from sailor import pai
-from sailor.pai.alert import Alert, create_alert
+from sailor.pai.alert import Alert
 
 
 @pytest.fixture
@@ -74,89 +73,3 @@ class TestAlert():
         ]
 
         assert expected_attributes == fieldmap_public_attributes
-
-
-@pytest.mark.filterwarnings('ignore:Unknown name for _AlertWriteRequest parameter found')
-def test_create_alert_create_calls_and_result(mock_ac_url, mock_pai_url, mock_request):
-    input_kwargs = {'param1': 'abc123', 'param2': 'def456'}
-    mock_post_response = b'12345678-1234-1234-1234-1234567890ab'
-    mock_get_response = {'d': {'results': [{'some': 'result'}]}}
-    mock_request.side_effect = [mock_post_response, mock_get_response]
-    expected_request_dict = input_kwargs
-
-    # mock validate so that validation does not fail
-    with patch('sailor.assetcentral.utils._AssetcentralWriteRequest.validate'):
-        actual = create_alert(**input_kwargs)
-
-    mock_request.assert_has_calls([
-        call('POST', 'ac_base_url' + constants.ALERTS_WRITE_PATH, json=expected_request_dict),
-        call('GET', 'pai_base_url' + constants.ALERTS_READ_PATH,
-             params={'$filter': "AlertId eq '12345678-1234-1234-1234-1234567890ab'", '$format': 'json'})])
-    assert type(actual) == Alert
-    assert actual.raw == {'some': 'result'}
-
-
-@pytest.mark.parametrize('find_call_result', [
-    ({'d': {'results': []}}),
-    ({'d': {'results': [{'AlertId': '123'}, {'AlertId': '456'}]}}),
-])
-@pytest.mark.filterwarnings('ignore::sailor.utils.utils.DataNotFoundWarning')
-@patch('sailor.pai.alert._AlertWriteRequest')
-def test_generic_create_update_raises_when_find_has_no_single_result(mock_wr, mock_pai_url, mock_ac_url, mock_request,
-                                                                     find_call_result):
-    successful_create_result = b'12345678-1234-1234-1234-1234567890ab'
-    mock_request.side_effect = [successful_create_result, find_call_result]
-
-    with pytest.raises(RuntimeError, match='Unexpected error'):
-        create_alert()
-
-
-def test_create_alert_integration(mock_pai_url, mock_ac_url, mock_request):
-    create_kwargs = {
-        'triggered_on': '2020-07-31T13:23:02Z',
-        'description': 'Test alert',
-        'type': 'Centrifuge_Overheating',
-        'severity_code': 5,
-        'equipment_id': '5FAEDF9376084F0BB97DB42E2EA34143',
-        'template_id': '8AE766D00DA9FC371700BE0A1BC94F02',
-        'indicator_group_id': '5A88CDF36B204CF38544EFA4A5E4C007',
-        'indicator_id': '9EC5B06DA27C49B7AB105697A1FC45DA',
-        'source': 'Machine'}
-    expected_request_dict = {
-        'triggeredOn': '2020-07-31T13:23:02Z',
-        'description': 'Test alert',
-        'alertType': 'Centrifuge_Overheating',
-        'severityCode': 5,
-        'equipmentId': '5FAEDF9376084F0BB97DB42E2EA34143',
-        'templateId': '8AE766D00DA9FC371700BE0A1BC94F02',
-        'indicatorGroupId': '5A88CDF36B204CF38544EFA4A5E4C007',
-        'indicatorId': '9EC5B06DA27C49B7AB105697A1FC45DA',
-        'source': 'Machine'}
-    mock_post_response = b'12345678-1234-1234-1234-1234567890ab'
-    mock_get_response = {'d': {'results': [{
-        '__metadata': {},
-        'EquipmentID': '5FAEDF9376084F0BB97DB42E2EA34143',
-        'TriggeredOn': '/Date(1596201782000)/',
-        'SeverityCode': 5,
-        'TemplateID': '8AE766D00DA9FC371700BE0A1BC94F02',
-        'Description': 'Test alert',
-        'IndicatorID': '9EC5B06DA27C49B7AB105697A1FC45DA',
-        'Source': 'Machine',
-        'AlertType': 'Centrifuge_Overheating',
-        'IndicatorGroupID': '5A88CDF36B204CF38544EFA4A5E4C007',
-        'AlertId': '12345678-1234-1234-1234-1234567890ab'}
-        ]}}
-    mock_request.side_effect = [mock_post_response, mock_get_response]
-
-    actual = create_alert(**create_kwargs)
-
-    mock_request.assert_has_calls([
-        call('POST', 'ac_base_url/ain/services/api/v1/alerts', json=expected_request_dict),
-        call('GET', 'pai_base_url/alerts/odata/v1/Alerts', params={
-            '$filter': "AlertId eq '12345678-1234-1234-1234-1234567890ab'", '$format': 'json'})])
-    assert type(actual) == Alert
-    assert actual.id == '12345678-1234-1234-1234-1234567890ab'
-    assert actual.triggered_on == Timestamp('2020-07-31T13:23:02Z')
-    create_kwargs.pop('triggered_on')
-    for property_name, value in create_kwargs.items():
-        assert getattr(actual, property_name) == value

@@ -83,16 +83,12 @@ class Alert(PredictiveAssetInsightsEntity):
 
     def __init__(self, ac_json: dict):
         super().__init__(ac_json)
-        for key, value in self.custom_properties.items():
+        for key, value in self._custom_properties.items():
             setattr(self, key, value)
-            self._field_map = self._field_map.copy()    # only update the field map of this particular object
-            self._field_map[key] = _PredictiveAssetInsightsField(key, key)
-            # this field is fake however, it is only used when as_df() is called to determine if the field should be
-            # included in the data frame
 
     @property
     @cache
-    def custom_properties(self):
+    def _custom_properties(self):
         return {key: value for key, value in self.raw.items()
                 if key.startswith('Z_') or key.startswith('z_')}
 
@@ -107,10 +103,10 @@ class AlertSet(PredictiveAssetInsightsEntitySet):
         },
     }
 
-    def as_df(self, columns=None, include_custom_properties=False):
+    def as_df(self, columns=None, include_all_custom_properties=False):
         """Return all information on the objects stored in the AlertSet as a pandas dataframe.
 
-        ``include_custom_properties`` can be set to True to add ALL custom properties attached to the alerts
+        ``include_all_custom_properties`` can be set to True to add ALL custom properties attached to the alerts
         to the resulting DataFrame. This can only be used when all alerts in the AlertSet are of the same type.
         """
         if columns is None:
@@ -118,10 +114,10 @@ class AlertSet(PredictiveAssetInsightsEntitySet):
 
         df = super().as_df(columns=columns + ['type'])  # type might be needed and will be removed at the end
 
-        if len(self) > 0 and include_custom_properties:
+        if len(self) > 0 and include_all_custom_properties:
             if df['type'].nunique() > 1:
                 raise RuntimeError('Cannot include custom properties: More than one alert type present in result.')
-            custom_columns = list(self[0].custom_properties.keys()) + ['id']
+            custom_columns = list(self[0]._custom_properties.keys()) + ['id']
             df_custom = super().as_df(columns=custom_columns)
             df = df.merge(df_custom)
 
@@ -160,54 +156,3 @@ def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
     endpoint_url = _pai_application_url() + ALERTS_READ_PATH
     object_list = _pai_fetch_data(endpoint_url, unbreakable_filters, breakable_filters)
     return AlertSet([Alert(obj) for obj in object_list])
-
-
-def create_alert(custom_properties: dict = None, **kwargs) -> Alert:
-    """Create a new alert.
-
-    Parameters
-    ----------
-    custom_properties
-        Properties specific to the alert type. Also known as Custom Fields.
-    **kwargs
-        Keyword arguments which names correspond to the available properties.
-
-    Returns
-    -------
-    Alert
-        A new alert object as retrieved from PAI after the create succeeded.
-
-    Example
-    -------
-    >>> alert = create_alert(equipment_id='123', triggered_on='2020-07-31T13:23:00Z'
-    ...                      type='PUMP_TEMP_WARN', severity_code=1, indicator_id='ic1',
-    ...                      indicator_group_id='ig1', template_id='t1')
-    """
-    if custom_properties:
-        kwargs.update(custom_properties=custom_properties)
-    request = _AlertWriteRequest()
-    request.insert_user_input(kwargs, forbidden_fields=['id'])
-    request.validate()
-    endpoint_url = sailor.assetcentral.utils._ac_application_url() + ALERTS_WRITE_PATH
-    oauth_client = get_oauth_client('asset_central')
-
-    response = oauth_client.request('POST', endpoint_url, json=request.data)
-    alert_id = re.search(
-                r'[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}',
-                response.decode('utf-8')).group()
-
-    result = find_alerts(id=alert_id)
-    if len(result) != 1:
-        raise RuntimeError('Unexpected error when creating the alert. Please try again.')
-    return result[0]
-
-
-class _AlertWriteRequest(sailor.assetcentral.utils._AssetcentralWriteRequest):
-
-    # preliminary idea
-    ADD_WRITE_PARAMS = {
-        'custom_properties': _PredictiveAssetInsightsField('custom_properties', None, 'custom_properties')
-    }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__({**Alert._field_map, **self.ADD_WRITE_PARAMS}, *args, **kwargs)
