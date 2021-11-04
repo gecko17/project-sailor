@@ -171,8 +171,8 @@ def test_create_alert_create_calls_and_result(mock_ac_url, mock_pai_url, mock_re
 ])
 @pytest.mark.filterwarnings('ignore::sailor.utils.utils.DataNotFoundWarning')
 @patch('sailor.pai.alert._AlertWriteRequest')
-def test_generic_create_update_raises_when_find_has_no_single_result(mock_wr, mock_pai_url, mock_ac_url, mock_request,
-                                                                     find_call_result):
+def test_create_alert_raises_when_find_has_no_single_result(mock_wr, mock_pai_url, mock_ac_url, mock_request,
+                                                            find_call_result):
     successful_create_result = b'12345678-1234-1234-1234-1234567890ab'
     mock_request.side_effect = [successful_create_result, find_call_result]
 
