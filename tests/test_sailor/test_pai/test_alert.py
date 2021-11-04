@@ -5,7 +5,28 @@ from pandas import Timestamp
 
 from sailor.pai import constants
 from sailor import pai
-from sailor.pai.alert import Alert, create_alert
+from sailor.pai.utils import _PredictiveAssetInsightsField
+from sailor.pai.alert import Alert, AlertSet, create_alert
+
+
+@pytest.fixture
+def make_alert():
+    def maker(**kwargs):
+        kwargs.setdefault('AlertId', 'id')
+        kwargs.setdefault('AlertType', 'alert_type')
+        return Alert(kwargs)
+    return maker
+
+
+@pytest.fixture
+def make_alert_set(make_alert):
+    def maker(**kwargs):
+        alert_defs = [dict() for _ in list(kwargs.values())[0]]
+        for k, values in kwargs.items():
+            for i, value in enumerate(values):
+                alert_defs[i][k] = value
+        return AlertSet([make_alert(**x) for x in alert_defs])
+    return maker
 
 
 @pytest.fixture
@@ -74,6 +95,54 @@ class TestAlert():
         ]
 
         assert expected_attributes == fieldmap_public_attributes
+
+    def test_custom_properties_uses_startswith_z(self):
+        alert = Alert({'AlertId': 'id',
+                       'Z_mycustom': 'mycustom', 'z_another': 'another'})
+        assert alert._custom_properties == {'Z_mycustom': 'mycustom', 'z_another': 'another'}
+
+    def test_custom_properties_are_set_as_attributes(self):
+        alert = Alert({'AlertId': 'id',
+                       'Z_mycustom': 'mycustom', 'z_another': 'another'})
+        assert alert.id == 'id'
+        assert alert.Z_mycustom == 'mycustom'
+        assert alert.z_another == 'another'
+
+
+@pytest.mark.parametrize('testdesc,kwargs,expected_cols', [
+    ('default=all noncustom properties',
+        dict(), ['id', 'type']),
+    ('only specified columns',
+        dict(columns=['id', 'Z_mycustom']), ['id', 'Z_mycustom']),
+    ('all properties AND all custom properties',
+        dict(include_all_custom_properties=True), ['id', 'type', 'Z_mycustom', 'z_another']),
+    ('specified AND all custom properties',
+        dict(columns=['id', 'Z_mycustom'], include_all_custom_properties=True), ['id', 'Z_mycustom', 'z_another'])
+])
+def test_alertset_as_df_expects_columns(make_alert_set, monkeypatch,
+                                        kwargs, expected_cols, testdesc):
+    monkeypatch.setattr(Alert, '_field_map', {
+        'id': _PredictiveAssetInsightsField('id', 'AlertId'),
+        'type': _PredictiveAssetInsightsField('type', 'AlertType'),
+    })
+    alert_set = make_alert_set(AlertId=['id1', 'id2', 'id3'],
+                               Z_mycustom=['cust1', 'cust2', 'cust3'],
+                               z_another=['ano1', 'ano2', 'ano3'])
+    actual = alert_set.as_df(**kwargs)
+    assert actual.columns.to_list() == expected_cols
+
+
+def test_alertset_as_df_raises_on_custom_properties_with_multiple_types(make_alert_set, monkeypatch):
+    monkeypatch.setattr(Alert, '_field_map', {
+        'id': _PredictiveAssetInsightsField('id', 'AlertId'),
+        'type': _PredictiveAssetInsightsField('type', 'AlertType'),
+    })
+    alert_set = make_alert_set(AlertId=['id1', 'id2', 'id3'],
+                               AlertType=['type', 'type', 'DIFFERENT_TYPE'],
+                               Z_mycustom=['cust1', 'cust2', 'cust3'],
+                               z_another=['ano1', 'ano2', 'ano3'])
+    with pytest.raises(RuntimeError, match='More than one alert type present in result'):
+        alert_set.as_df(include_all_custom_properties=True)
 
 
 @pytest.mark.filterwarnings('ignore:Unknown name for _AlertWriteRequest parameter found')
