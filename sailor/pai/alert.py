@@ -4,7 +4,6 @@ Retrieve Alert information from the alert re-use service.
 Classes are provided for individual Alert as well as groups of Alerts (AlertSet).
 """
 
-from functools import cache
 import re
 
 import sailor.assetcentral.utils
@@ -81,17 +80,6 @@ class Alert(PredictiveAssetInsightsEntity):
 
     _field_map = {field.our_name: field for field in _ALERT_FIELDS}
 
-    def __init__(self, ac_json: dict):
-        super().__init__(ac_json)
-        for key, value in self._custom_properties.items():
-            setattr(self, key, value)
-
-    @property
-    @cache
-    def _custom_properties(self):
-        return {key: value for key, value in self.raw.items()
-                if key.startswith('Z_') or key.startswith('z_')}
-
 
 class AlertSet(PredictiveAssetInsightsEntitySet):
     """Class representing a group of Alerts."""
@@ -102,28 +90,6 @@ class AlertSet(PredictiveAssetInsightsEntitySet):
             'by': 'type',
         },
     }
-
-    def as_df(self, columns=None, include_all_custom_properties=False):
-        """Return all information on the objects stored in the AlertSet as a pandas dataframe.
-        ``include_all_custom_properties`` can be set to True to add ALL custom properties attached to the alerts
-        to the resulting DataFrame. This can only be used when all alerts in the AlertSet are of the same type.
-        """
-        if columns is None:
-            columns = [field.our_name for field in self._element_type._field_map.values() if field.is_exposed]
-
-        df = super().as_df(columns=columns + ['type'])  # type might be needed and will be removed at the end
-
-        if len(self) > 0 and include_all_custom_properties:
-            if df['type'].nunique() > 1:
-                raise RuntimeError('Cannot include custom properties: More than one alert type present in result.')
-            custom_columns = list(self[0]._custom_properties.keys()) + ['id']
-            df_custom = super().as_df(columns=custom_columns)
-            df = df.merge(df_custom)
-
-        if 'type' not in columns:
-            df.drop(columns='type', inplace=True)
-
-        return df
 
 
 def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
@@ -168,7 +134,6 @@ def create_alert(**kwargs) -> Alert:
     ----------
     **kwargs
         Keyword arguments which names correspond to the available properties.
-        Can also be used to supply custom fields (Z_*, z_*) used with the corresponding alert type.
 
     Returns
     -------
@@ -200,16 +165,5 @@ def create_alert(**kwargs) -> Alert:
 
 class _AlertWriteRequest(sailor.assetcentral.utils._AssetcentralWriteRequest):
 
-    ADD_WRITE_PARAMS = {
-        'custom_properties': _PredictiveAssetInsightsField('custom_properties', None, 'custom_properties')
-    }
-
     def __init__(self, *args, **kwargs):
-        super().__init__({**Alert._field_map, **self.ADD_WRITE_PARAMS}, *args, **kwargs)
-
-    def insert_user_input(self, input_dict: dict, forbidden_fields=()):
-        custom_properties = {key: input_dict.pop(key) for key in list(input_dict.keys())
-                             if key.startswith('Z_') or key.startswith('z_')}
-        if custom_properties:
-            input_dict['custom_properties'] = custom_properties
-        return super().insert_user_input(input_dict, forbidden_fields=forbidden_fields)
+        super().__init__(Alert._field_map, *args, **kwargs)

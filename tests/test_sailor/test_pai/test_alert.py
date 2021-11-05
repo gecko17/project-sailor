@@ -5,8 +5,7 @@ from pandas import Timestamp
 
 from sailor.pai import constants
 from sailor import pai
-from sailor.pai.utils import _PredictiveAssetInsightsField
-from sailor.pai.alert import Alert, AlertSet, _AlertWriteRequest, create_alert
+from sailor.pai.alert import Alert, AlertSet, create_alert
 
 
 @pytest.fixture
@@ -96,54 +95,6 @@ class TestAlert():
 
         assert expected_attributes == fieldmap_public_attributes
 
-    def test_custom_properties_uses_startswith_z(self):
-        alert = Alert({'AlertId': 'id',
-                       'Z_mycustom': 'mycustom', 'z_another': 'another'})
-        assert alert._custom_properties == {'Z_mycustom': 'mycustom', 'z_another': 'another'}
-
-    def test_custom_properties_are_set_as_attributes(self):
-        alert = Alert({'AlertId': 'id',
-                       'Z_mycustom': 'mycustom', 'z_another': 'another'})
-        assert alert.id == 'id'
-        assert alert.Z_mycustom == 'mycustom'
-        assert alert.z_another == 'another'
-
-
-@pytest.mark.parametrize('testdesc,kwargs,expected_cols', [
-    ('default=all noncustom properties',
-        dict(), ['id', 'type']),
-    ('only specified columns',
-        dict(columns=['id', 'Z_mycustom']), ['id', 'Z_mycustom']),
-    ('all properties AND all custom properties',
-        dict(include_all_custom_properties=True), ['id', 'type', 'Z_mycustom', 'z_another']),
-    ('specified AND all custom properties',
-        dict(columns=['id', 'Z_mycustom'], include_all_custom_properties=True), ['id', 'Z_mycustom', 'z_another'])
-])
-def test_alertset_as_df_expects_columns(make_alert_set, monkeypatch,
-                                        kwargs, expected_cols, testdesc):
-    monkeypatch.setattr(Alert, '_field_map', {
-        'id': _PredictiveAssetInsightsField('id', 'AlertId'),
-        'type': _PredictiveAssetInsightsField('type', 'AlertType'),
-    })
-    alert_set = make_alert_set(AlertId=['id1', 'id2', 'id3'],
-                               Z_mycustom=['cust1', 'cust2', 'cust3'],
-                               z_another=['ano1', 'ano2', 'ano3'])
-    actual = alert_set.as_df(**kwargs)
-    assert actual.columns.to_list() == expected_cols
-
-
-def test_alertset_as_df_raises_on_custom_properties_with_multiple_types(make_alert_set, monkeypatch):
-    monkeypatch.setattr(Alert, '_field_map', {
-        'id': _PredictiveAssetInsightsField('id', 'AlertId'),
-        'type': _PredictiveAssetInsightsField('type', 'AlertType'),
-    })
-    alert_set = make_alert_set(AlertId=['id1', 'id2', 'id3'],
-                               AlertType=['type', 'type', 'DIFFERENT_TYPE'],
-                               Z_mycustom=['cust1', 'cust2', 'cust3'],
-                               z_another=['ano1', 'ano2', 'ano3'])
-    with pytest.raises(RuntimeError, match='More than one alert type present in result'):
-        alert_set.as_df(include_all_custom_properties=True)
-
 
 @pytest.mark.filterwarnings('ignore:Unknown name for _AlertWriteRequest parameter found')
 def test_create_alert_create_calls_and_result(mock_ac_url, mock_pai_url, mock_request):
@@ -229,26 +180,3 @@ def test_create_alert_integration(mock_pai_url, mock_ac_url, mock_request):
     create_kwargs.pop('triggered_on')
     for property_name, value in create_kwargs.items():
         assert getattr(actual, property_name) == value
-
-
-def test_alertwriterequest_custom_properties():
-    create_kwargs = {
-        'triggered_on': '2020-07-31T13:23:02Z',
-        'type': 'Centrifuge_Overheating',
-        'severity_code': 5,
-        'equipment_id': '5FAEDF9376084F0BB97DB42E2EA34143',
-        'Z_mycustom': 'some custom value',
-        'z_another': 'another custom value'}
-    expected_request_dict = {
-        'triggeredOn': '2020-07-31T13:23:02Z',
-        'alertType': 'Centrifuge_Overheating',
-        'severityCode': 5,
-        'equipmentId': '5FAEDF9376084F0BB97DB42E2EA34143',
-        'custom_properties': {'Z_mycustom': 'some custom value',
-                              'z_another': 'another custom value'}
-    }
-
-    request = _AlertWriteRequest()
-    request.insert_user_input(create_kwargs)
-
-    assert request == expected_request_dict
