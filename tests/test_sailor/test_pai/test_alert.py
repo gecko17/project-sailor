@@ -6,7 +6,7 @@ from pandas import Timestamp
 from sailor.pai import constants
 from sailor import pai
 from sailor.pai.utils import _PredictiveAssetInsightsField
-from sailor.pai.alert import Alert, AlertSet, create_alert
+from sailor.pai.alert import Alert, AlertSet, _AlertWriteRequest, create_alert
 
 
 @pytest.fixture
@@ -229,3 +229,26 @@ def test_create_alert_integration(mock_pai_url, mock_ac_url, mock_request):
     create_kwargs.pop('triggered_on')
     for property_name, value in create_kwargs.items():
         assert getattr(actual, property_name) == value
+
+
+def test_alertwriterequest_custom_properties():
+    create_kwargs = {
+        'triggered_on': '2020-07-31T13:23:02Z',
+        'type': 'Centrifuge_Overheating',
+        'severity_code': 5,
+        'equipment_id': '5FAEDF9376084F0BB97DB42E2EA34143',
+        'Z_mycustom': 'some custom value',
+        'z_another': 'another custom value'}
+    expected_request_dict = {
+        'triggeredOn': '2020-07-31T13:23:02Z',
+        'alertType': 'Centrifuge_Overheating',
+        'severityCode': 5,
+        'equipmentId': '5FAEDF9376084F0BB97DB42E2EA34143',
+        'custom_properties': {'Z_mycustom': 'some custom value',
+                              'z_another': 'another custom value'}
+    }
+
+    request = _AlertWriteRequest()
+    request.insert_user_input(create_kwargs)
+
+    assert request == expected_request_dict

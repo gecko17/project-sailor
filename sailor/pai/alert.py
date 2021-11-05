@@ -157,15 +157,18 @@ def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
     return AlertSet([Alert(obj) for obj in object_list])
 
 
-def create_alert(custom_properties: dict = None, **kwargs) -> Alert:
+def create_alert(**kwargs) -> Alert:
     """Create a new alert.
+
+    Create a new alert in the remote system. If the specified alert type uses a deduplication period,
+    the remote system will not create a new alert but only increase the counter for an existing alert
+    on the same equipment within the deduplication period.
 
     Parameters
     ----------
-    custom_properties
-        Properties specific to the alert type. Also known as Custom Fields.
     **kwargs
         Keyword arguments which names correspond to the available properties.
+        Can also be used to supply custom fields (Z_*, z_*) used with the corresponding alert type.
 
     Returns
     -------
@@ -178,8 +181,6 @@ def create_alert(custom_properties: dict = None, **kwargs) -> Alert:
     ...                      type='PUMP_TEMP_WARN', severity_code=1, indicator_id='ic1',
     ...                      indicator_group_id='ig1', template_id='t1')
     """
-    if custom_properties:
-        kwargs.update(custom_properties=custom_properties)
     request = _AlertWriteRequest()
     request.insert_user_input(kwargs, forbidden_fields=['id'])
     request.validate()
@@ -199,10 +200,16 @@ def create_alert(custom_properties: dict = None, **kwargs) -> Alert:
 
 class _AlertWriteRequest(sailor.assetcentral.utils._AssetcentralWriteRequest):
 
-    # preliminary idea
     ADD_WRITE_PARAMS = {
         'custom_properties': _PredictiveAssetInsightsField('custom_properties', None, 'custom_properties')
     }
 
     def __init__(self, *args, **kwargs):
         super().__init__({**Alert._field_map, **self.ADD_WRITE_PARAMS}, *args, **kwargs)
+
+    def insert_user_input(self, input_dict: dict, forbidden_fields=()):
+        custom_properties = {key: input_dict.pop(key) for key in list(input_dict.keys())
+                             if key.startswith('Z_') or key.startswith('z_')}
+        if custom_properties:
+            input_dict['custom_properties'] = custom_properties
+        return super().insert_user_input(input_dict, forbidden_fields=forbidden_fields)
